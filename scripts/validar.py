@@ -25,9 +25,7 @@ def error(archivo, msg):
     errores.append(f"{archivo}: {msg}")
 
 
-def esquemas():
-    txt = (RAIZ / "oracle-insis" / "esquemas.txt").read_text()
-    return [l.strip() for l in txt.splitlines() if l.strip() and not l.startswith("#")]
+ESQUEMA = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 def revisar_sql(ruta: Path, carpeta: str):
@@ -59,10 +57,10 @@ def revisar_sql(ruta: Path, carpeta: str):
 
 def main():
     base = sys.argv[1] if len(sys.argv) > 1 else "desa"
-    validos = esquemas()
+    duenos = {}  # versión → esquema: las versiones son únicas en el repo porque ordenan el despliegue entre esquemas
     for d in sorted(p for p in MIG.iterdir() if p.is_dir()):
-        if d.name not in validos:
-            error(d.relative_to(RAIZ), "esquema no declarado en oracle-insis/esquemas.txt")
+        if not ESQUEMA.match(d.name):
+            error(d.relative_to(RAIZ), "la carpeta debe llevar el nombre del esquema de INSIS en mayúsculas")
             continue
         cl = d / "changelog.xml"
         if not cl.exists():
@@ -87,6 +85,10 @@ def main():
         versiones = [Path(i).name.split("_")[0] for i in incluidos if not Path(i).name.startswith("R_")]
         if len(versiones) != len(set(versiones)):
             error(cl.relative_to(RAIZ), "hay versiones repetidas")
+        for v in set(versiones):
+            if v in duenos:
+                error(cl.relative_to(RAIZ), f"la versión {v} ya se usa en {duenos[v]}; las versiones no se repiten entre esquemas")
+            duenos[v] = d.name
 
     # Un script ya integrado no se modifica: el cambio va en un script nuevo (salvo code/, que se reaplica).
     diff = subprocess.run(["git", "diff", "--name-status", f"origin/{base}...HEAD", "--", "oracle-insis/migrations"],

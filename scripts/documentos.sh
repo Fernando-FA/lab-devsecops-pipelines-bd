@@ -2,11 +2,12 @@
 # Genera los entregables de DevSecOps en Markdown a partir de los logs de Liquibase.
 #   opa → Orden de Pase Aplicativo + Procedimiento de Rollback Aplicativo (lee evidencia/plan)
 #   epp → Evidencia de Pase a Producción/ambiente (lee evidencia/cd)
-# Variables: AMB, TICKET, VERSION y, para epp, RESULTADO.
+# Variables: AMB, TICKET, VERSION, LB_DESDE y, para epp, RESULTADO.
 set -euo pipefail
 raiz="$(cd "${REPO_BD:-.}" && pwd)"  # repo de BD (por defecto, el directorio actual)
 tipo="${1:?opa|epp}"
-mapfile -t esquemas < <(grep -vE '^\s*(#|$)' "$raiz/oracle-insis/esquemas.txt")
+# Los mismos esquemas y en el mismo orden que lb.sh (LB_DESDE: lo último desplegado en el ambiente).
+mapfile -t esquemas < <("$(dirname "$0")/esquemas.sh" "$raiz/oracle-insis/migrations")
 url="${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}"
 
 bloque() {  # título, archivo
@@ -51,6 +52,7 @@ case "$tipo" in
     echo "## OPA · Orden de Pase Aplicativo — INSIS BD ${AMB} v${VERSION}"
     echo; cabecera
     echo "### Cambios que se ejecutan (orden de ejecución)"; echo
+    echo "Esquemas con cambios, en orden de despliegue: ${esquemas[*]:-ninguno}"; echo
     for e in "${esquemas[@]}"; do
       mapfile -t pend < <(pendientes "$e")
       [ ${#pend[@]} -eq 0 ] && { echo "- **$e**: sin cambios"; continue; }

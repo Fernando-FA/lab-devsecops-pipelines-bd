@@ -11,7 +11,7 @@ on:
       plantillas:
         description: Versión de estas plantillas (la misma etiqueta con la que se llama el workflow)
         type: string
-        default: v1
+        default: v2
 
 jobs:
   etiquetar:

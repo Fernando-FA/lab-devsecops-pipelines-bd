@@ -6,13 +6,19 @@ on:
       plantillas:
         description: Versión de estas plantillas (la misma etiqueta con la que se llama el workflow)
         type: string
-        default: v1
+        default: v2
 
 jobs:
   cd:
     name: CD · desa
     runs-on: [self-hosted, insis-db]
     environment: desa
+    # Conexión de la base del ambiente: variables del environment, fuera del alcance del repo de BD.
+    env:
+      DB_HOST: ${{ vars.DB_HOST }}
+      DB_PORT: ${{ vars.DB_PORT }}
+      DB_SERVICE: ${{ vars.DB_SERVICE }}
+      DB_USER: ${{ vars.DB_USER }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,6 +29,10 @@ jobs:
           repository: Fernando-FA/lab-devsecops-pipelines-bd
           ref: ${{ inputs.plantillas }}
           path: .plantillas
+      - name: Último despliegue exitoso en desa
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "LB_DESDE=$(.plantillas/scripts/desplegado.sh desa)" >> "$GITHUB_ENV"
       - name: Desplegar
         env:
           INSIS_DEPLOY_PASSWORD: ${{ secrets.INSIS_DEPLOY_PASSWORD }}

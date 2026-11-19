@@ -12,15 +12,21 @@ on:
       plantillas:
         description: Versión de estas plantillas (la misma etiqueta con la que se llama el workflow)
         type: string
-        default: v1
+        default: v2
 
 jobs:
   ci:
     name: CI · plan ${{ inputs.ambiente }}
     runs-on: [self-hosted, insis-db]
     environment: ${{ inputs.ambiente }}-plan
+    env:
+      DB_HOST: ${{ vars.DB_HOST }}
+      DB_PORT: ${{ vars.DB_PORT }}
+      DB_SERVICE: ${{ vars.DB_SERVICE }}
+      DB_USER: ${{ vars.DB_USER }}
     outputs:
       version: ${{ steps.v.outputs.version }}
+      desde: ${{ steps.desde.outputs.desde }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,6 +56,14 @@ jobs:
             [ "$estado" = success ] || { echo "::error::test-v$version no tiene un despliegue exitoso en test"; exit 1; }
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Último despliegue exitoso en ${{ inputs.ambiente }}
+        id: desde
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          desde=$(.plantillas/scripts/desplegado.sh "${{ inputs.ambiente }}")
+          echo "desde=$desde" >> "$GITHUB_OUTPUT"
+          echo "LB_DESDE=$desde" >> "$GITHUB_ENV"
       - name: Plan (pendientes, SQL y rollback)
         env:
           INSIS_DEPLOY_PASSWORD: ${{ secrets.INSIS_DEPLOY_PASSWORD }}
@@ -76,6 +90,12 @@ jobs:
     runs-on: [self-hosted, insis-db]
     environment:
       name: ${{ inputs.ambiente }}
+    env:
+      DB_HOST: ${{ vars.DB_HOST }}
+      DB_PORT: ${{ vars.DB_PORT }}
+      DB_SERVICE: ${{ vars.DB_SERVICE }}
+      DB_USER: ${{ vars.DB_USER }}
+      LB_DESDE: ${{ needs.ci.outputs.desde }}
     steps:
       - uses: actions/checkout@v4
         with:
