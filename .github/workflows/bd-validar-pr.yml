@@ -1,0 +1,77 @@
+# Compuerta de los PR del repo de BD (a desa, test y prod): reglas de promoción, nomenclatura y plan en desa.
+# Los scripts vienen de este repo: un PR del repo de BD no puede cambiar la validación que debe pasar.
+name: bd-validar-pr
+on:
+  workflow_call:
+    inputs:
+      plantillas:
+        description: Versión de estas plantillas (la misma etiqueta con la que se llama el workflow)
+        type: string
+        default: v1
+
+jobs:
+  reglas:
+    name: Reglas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/checkout@v4
+        with:
+          repository: Fernando-FA/lab-devsecops-pipelines-bd
+          ref: ${{ inputs.plantillas }}
+          path: .plantillas
+      - name: Promoción entre ramas
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          case "$BASE" in
+            desa) [[ "$HEAD" =~ ^(feature/feat|bugfix/bug|hotfix/hot)-[a-z0-9._-]+$ ]] \
+                    || { echo "::error::A desa solo llegan feature/feat-<user>, bugfix/bug-<user> o hotfix/hot-<user> (llegó $HEAD)"; exit 1; } ;;
+            test) [ "$HEAD" = desa ] || { echo "::error::A test solo se promueve desde desa (llegó $HEAD)"; exit 1; } ;;
+            prod) [ "$HEAD" = test ] || { echo "::error::A prod solo se promueve desde test (llegó $HEAD)"; exit 1; } ;;
+          esac
+          echo "$HEAD → $BASE: permitido"
+      - name: Nomenclatura y scripts
+        run: python3 .plantillas/scripts/validar.py "${{ github.base_ref }}"
+      - name: A prod solo llega lo que pasó por test
+        if: github.base_ref == 'prod'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          version=$(.plantillas/scripts/version.sh certificada "$SHA") \
+            || { echo "::error::El contenido de test no corresponde a ninguna etiqueta test-v*: no pasó por test"; exit 1; }
+          tag="test-v$version"
+          dep=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=test&sha=$(git rev-parse "$tag^{commit}")" --jq '.[0].id // empty')
+          estado=$([ -n "$dep" ] && gh api "repos/$GITHUB_REPOSITORY/deployments/$dep/statuses" --jq '.[0].state' || true)
+          [ "$estado" = success ] || { echo "::error::$tag no tiene un despliegue exitoso en test (estado: ${estado:-ninguno})"; exit 1; }
+          echo "$tag desplegado en test y con el mismo contenido: OK"
+
+  plan:
+    name: Plan en desa
+    needs: reglas
+    # Solo PR del mismo repo: el runner es propio y no debe ejecutar código de forks.
+    if: github.base_ref == 'desa' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, insis-db]
+    environment: desa-pr
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/checkout@v4
+        with:
+          repository: Fernando-FA/lab-devsecops-pipelines-bd
+          ref: ${{ inputs.plantillas }}
+          path: .plantillas
+      - name: Pendientes y SQL que se ejecutará en desa
+        env:
+          INSIS_DEPLOY_PASSWORD: ${{ secrets.INSIS_DEPLOY_PASSWORD }}
+        run: |
+          .plantillas/scripts/lb.sh desa validate
+          .plantillas/scripts/lb.sh desa status
+          .plantillas/scripts/lb.sh desa update-sql

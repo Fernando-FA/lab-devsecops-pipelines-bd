@@ -1,0 +1,36 @@
+# desa: despliegue automático al integrar en la rama desa.
+name: bd-desplegar-desa
+on:
+  workflow_call:
+    inputs:
+      plantillas:
+        description: Versión de estas plantillas (la misma etiqueta con la que se llama el workflow)
+        type: string
+        default: v1
+
+jobs:
+  cd:
+    name: CD · desa
+    runs-on: [self-hosted, insis-db]
+    environment: desa
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/checkout@v4
+        with:
+          repository: Fernando-FA/lab-devsecops-pipelines-bd
+          ref: ${{ inputs.plantillas }}
+          path: .plantillas
+      - name: Desplegar
+        env:
+          INSIS_DEPLOY_PASSWORD: ${{ secrets.INSIS_DEPLOY_PASSWORD }}
+        run: |
+          .plantillas/scripts/lb.sh desa update
+          .plantillas/scripts/lb.sh desa status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidencia-desa-${{ github.run_number }}
+          path: evidencia/desa/

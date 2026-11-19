@@ -1,0 +1,50 @@
+# Al integrar en test o prod crea la etiqueta <amb>-v<versión>.
+#   test: la siguiente versión (sube el menor), o la que ya tenga el commit.
+#   prod: la misma versión de la etiqueta test-v* con el mismo contenido; si no hay, no pasó por test.
+name: bd-etiquetar
+on:
+  workflow_call:
+    inputs:
+      ambiente:
+        type: string
+        required: true
+      plantillas:
+        description: Versión de estas plantillas (la misma etiqueta con la que se llama el workflow)
+        type: string
+        default: v1
+
+jobs:
+  etiquetar:
+    name: Etiquetar ${{ inputs.ambiente }}-v<versión>
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/checkout@v4
+        with:
+          repository: Fernando-FA/lab-devsecops-pipelines-bd
+          ref: ${{ inputs.plantillas }}
+          path: .plantillas
+      - name: Crear etiqueta
+        env:
+          AMB: ${{ inputs.ambiente }}
+        run: |
+          v=.plantillas/scripts/version.sh
+          case "$AMB" in
+            test) version=$($v de test "$GITHUB_SHA" || $v siguiente) ;;
+            prod) version=$($v certificada "$GITHUB_SHA") \
+                    || { echo "::error::El contenido de prod no corresponde a ninguna etiqueta test-v*: no pasó por test"; exit 1; } ;;
+            *) echo "::error::Solo test y prod llevan etiqueta"; exit 1 ;;
+          esac
+          tag="$AMB-v$version"
+          remoto=$(git ls-remote --tags origin "refs/tags/$tag" | cut -f1)
+          if [ -z "$remoto" ]; then
+            git tag "$tag" "$GITHUB_SHA" && git push origin "$tag"
+            echo "Etiqueta $tag creada en ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$remoto" = "$GITHUB_SHA" ]; then
+            echo "$tag ya apunta a este commit"
+          else
+            echo "::error::$tag ya existe en otro commit"; exit 1
+          fi
